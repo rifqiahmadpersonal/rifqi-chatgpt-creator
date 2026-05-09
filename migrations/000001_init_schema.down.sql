@@ -1,0 +1,10 @@
+DROP TRIGGER IF EXISTS update_configurations_updated_at ON configurations;
+DROP TRIGGER IF EXISTS update_email_domains_updated_at ON email_domains;
+DROP TRIGGER IF EXISTS update_accounts_updated_at ON accounts;
+DROP FUNCTION IF EXISTS update_updated_at_column();
+DROP TABLE IF EXISTS registration_attempts;
+DROP TABLE IF EXISTS batch_jobs;
+DROP TABLE IF EXISTS configurations;
+DROP TABLE IF EXISTS blacklisted_domains;
+DROP TABLE IF EXISTS email_domains;
+DROP TABLE IF EXISTS accounts;

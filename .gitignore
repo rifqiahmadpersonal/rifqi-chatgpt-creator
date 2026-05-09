@@ -1,10 +1,62 @@
 # Binary output
 chatgpt-creator
+bin/
+dist/
 
 # OS files
 .DS_Store
+Thumbs.db
 
 # Config and Results
 results.txt
 blacklist.json
-results.txt
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.sqlite
+
+# Logs
+logs/
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Go
+go.work
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.turbo/
+frontend/coverage/
+
+# Test
+coverage.out
+coverage.html
+*.coverprofile
+
+# Temporary
+tmp/
+temp/
+.sisyphus/
+
+# Docker
+.docker/

@@ -1,0 +1,52 @@
+# Docker ignore
+.git
+.gitignore
+.env
+.env.*
+*.md
+Makefile
+.dockerignore
+Dockerfile*
+docker-compose*.yml
+
+# Binaries
+bin/
+dist/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test files
+*_test.go
+test/
+coverage.*
+*.coverprofile
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary
+tmp/
+temp/
+.sisyphus/
+logs/
+*.log
+
+# Frontend (will be built in its own stage)
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Database files
+*.db
+*.sqlite
+results.txt
+blacklist.json

@@ -1,0 +1,179 @@
+version: "3.9"
+
+services:
+  # ===========================================
+  # PostgreSQL Database
+  # ===========================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: chatgpt-creator-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-chatgpt}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-chatgpt_secret_change_me}
+      POSTGRES_DB: ${DB_NAME:-chatgpt_creator}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${DB_EXTERNAL_PORT:-5432}:5432"
+    networks:
+      - chatgpt-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-chatgpt} -d ${DB_NAME:-chatgpt_creator}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ===========================================
+  # Redis (Job Queue - Optional)
+  # ===========================================
+  redis:
+    image: redis:7-alpine
+    container_name: chatgpt-creator-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes ${REDIS_PASSWORD:+--requirepass $REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${REDIS_EXTERNAL_PORT:-6379}:6379"
+    networks:
+      - chatgpt-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    profiles:
+      - redis
+
+  # ===========================================
+  # Go API Backend
+  # ===========================================
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    image: chatgpt-creator-api:latest
+    container_name: chatgpt-creator-api
+    restart: unless-stopped
+    environment:
+      # Application
+      APP_ENV: ${APP_ENV:-production}
+      APP_NAME: ${APP_NAME:-chatgpt-creator}
+      APP_PORT: ${APP_PORT:-8080}
+      APP_MODE: ${APP_MODE:-release}
+      
+      # Database
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-chatgpt}
+      DB_PASSWORD: ${DB_PASSWORD:-chatgpt_secret_change_me}
+      DB_NAME: ${DB_NAME:-chatgpt_creator}
+      DB_SSL_MODE: ${DB_SSL_MODE:-disable}
+      DB_MAX_OPEN_CONNS: ${DB_MAX_OPEN_CONNS:-25}
+      DB_MAX_IDLE_CONNS: ${DB_MAX_IDLE_CONNS:-25}
+      DB_CONN_MAX_LIFETIME: ${DB_CONN_MAX_LIFETIME:-5m}
+      
+      # Redis
+      REDIS_ENABLED: ${REDIS_ENABLED:-false}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_DB: ${REDIS_DB:-0}
+      
+      # Frontend
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      
+      # Registration
+      DEFAULT_PROXY: ${DEFAULT_PROXY:-}
+      DEFAULT_PASSWORD: ${DEFAULT_PASSWORD:-}
+      DEFAULT_DOMAIN: ${DEFAULT_DOMAIN:-}
+      WORKER_POOL_SIZE: ${WORKER_POOL_SIZE:-5}
+      REGISTRATION_TIMEOUT: ${REGISTRATION_TIMEOUT:-10m}
+      MAX_RETRIES: ${MAX_RETRIES:-3}
+      
+      # Email Domains
+      EMAIL_DOMAINS_HEALTH_CHECK_ENABLED: ${EMAIL_DOMAINS_HEALTH_CHECK_ENABLED:-true}
+      EMAIL_DOMAINS_HEALTH_CHECK_INTERVAL: ${EMAIL_DOMAINS_HEALTH_CHECK_INTERVAL:-5m}
+      EMAIL_DOMAINS_DEFAULT_SOURCE: ${EMAIL_DOMAINS_DEFAULT_SOURCE:-generator}
+      
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      LOG_OUTPUT: ${LOG_OUTPUT:-stdout}
+      
+      # API
+      API_RATE_LIMIT_ENABLED: ${API_RATE_LIMIT_ENABLED:-true}
+      API_RATE_LIMIT_REQUESTS: ${API_RATE_LIMIT_REQUESTS:-100}
+      API_RATE_LIMIT_DURATION: ${API_RATE_LIMIT_DURATION:-1m}
+      API_READ_TIMEOUT: ${API_READ_TIMEOUT:-30s}
+      API_WRITE_TIMEOUT: ${API_WRITE_TIMEOUT:-30s}
+      API_SHUTDOWN_TIMEOUT: ${API_SHUTDOWN_TIMEOUT:-10s}
+      
+      # WebSocket
+      WS_ENABLED: ${WS_ENABLED:-true}
+      WS_PING_INTERVAL: ${WS_PING_INTERVAL:-30s}
+      WS_PONG_WAIT: ${WS_PONG_WAIT:-60s}
+      WS_MAX_MESSAGE_SIZE: ${WS_MAX_MESSAGE_SIZE:-4096}
+    ports:
+      - "${API_EXTERNAL_PORT:-8080}:8080"
+    networks:
+      - chatgpt-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ===========================================
+  # Next.js Frontend
+  # ===========================================
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    image: chatgpt-creator-frontend:latest
+    container_name: chatgpt-creator-frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: 1
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+    ports:
+      - "${FRONTEND_EXTERNAL_PORT:-3000}:3000"
+    networks:
+      - chatgpt-network
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    profiles:
+      - frontend
+
+# ===========================================
+# Networks
+# ===========================================
+networks:
+  chatgpt-network:
+    driver: bridge
+
+# ===========================================
+# Volumes
+# ===========================================
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
