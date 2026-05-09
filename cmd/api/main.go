@@ -7,10 +7,8 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/sirupsen/logrus"
 	"github.com/swaggo/files"
 	"github.com/swaggo/gin-swagger"
 
@@ -75,7 +73,7 @@ func main() {
 
 	api := router.Group("/api")
 	{
-		routes.SetupRoutes(api, db, logger, envCfg)
+		routes.SetupRoutes(api, db.DB, logger, envCfg)
 	}
 
 	srv := &http.Server{

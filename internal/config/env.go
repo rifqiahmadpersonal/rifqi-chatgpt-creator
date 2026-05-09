@@ -88,22 +88,57 @@ type WebSocketConfig struct {
 	MaxMessageSize int64         `mapstructure:"WS_MAX_MESSAGE_SIZE"`
 }
 
-// LoadEnv loads configuration from environment variables and .env file
+// LoadEnv loads configuration from environment variables
 func LoadEnv() (*EnvConfig, error) {
-	viper.SetConfigFile(".env")
-	viper.SetConfigType("env")
-	viper.AutomaticEnv()
 	viper.SetEnvPrefix("")
+	viper.AutomaticEnv()
 
-	// Set defaults
+	// Bind env vars explicitly AFTER AutomaticEnv
+	viper.BindEnv("APP_ENV")
+	viper.BindEnv("APP_NAME")
+	viper.BindEnv("APP_PORT")
+	viper.BindEnv("APP_MODE")
+	viper.BindEnv("DB_HOST")
+	viper.BindEnv("DB_PORT")
+	viper.BindEnv("DB_USER")
+	viper.BindEnv("DB_PASSWORD")
+	viper.BindEnv("DB_NAME")
+	viper.BindEnv("DB_SSL_MODE")
+	viper.BindEnv("DB_MAX_OPEN_CONNS")
+	viper.BindEnv("DB_MAX_IDLE_CONNS")
+	viper.BindEnv("DB_CONN_MAX_LIFETIME")
+	viper.BindEnv("REDIS_ENABLED")
+	viper.BindEnv("REDIS_HOST")
+	viper.BindEnv("REDIS_PORT")
+	viper.BindEnv("REDIS_PASSWORD")
+	viper.BindEnv("REDIS_DB")
+	viper.BindEnv("FRONTEND_URL")
+	viper.BindEnv("CORS_ORIGINS")
+	viper.BindEnv("DEFAULT_PROXY")
+	viper.BindEnv("DEFAULT_PASSWORD")
+	viper.BindEnv("DEFAULT_DOMAIN")
+	viper.BindEnv("WORKER_POOL_SIZE")
+	viper.BindEnv("REGISTRATION_TIMEOUT")
+	viper.BindEnv("MAX_RETRIES")
+	viper.BindEnv("EMAIL_DOMAINS_HEALTH_CHECK_ENABLED")
+	viper.BindEnv("EMAIL_DOMAINS_HEALTH_CHECK_INTERVAL")
+	viper.BindEnv("EMAIL_DOMAINS_DEFAULT_SOURCE")
+	viper.BindEnv("LOG_LEVEL")
+	viper.BindEnv("LOG_FORMAT")
+	viper.BindEnv("LOG_OUTPUT")
+	viper.BindEnv("API_RATE_LIMIT_ENABLED")
+	viper.BindEnv("API_RATE_LIMIT_REQUESTS")
+	viper.BindEnv("API_RATE_LIMIT_DURATION")
+	viper.BindEnv("API_READ_TIMEOUT")
+	viper.BindEnv("API_WRITE_TIMEOUT")
+	viper.BindEnv("API_SHUTDOWN_TIMEOUT")
+	viper.BindEnv("WS_ENABLED")
+	viper.BindEnv("WS_PING_INTERVAL")
+	viper.BindEnv("WS_PONG_WAIT")
+	viper.BindEnv("WS_MAX_MESSAGE_SIZE")
+
+	// Set defaults AFTER binding so env vars take precedence
 	setDefaults()
-
-	// Read config file
-	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			return nil, err
-		}
-	}
 
 	var cfg EnvConfig
 	if err := viper.Unmarshal(&cfg); err != nil {
@@ -121,7 +156,7 @@ func setDefaults() {
 	viper.SetDefault("APP_MODE", "debug")
 
 	// Database defaults
-	viper.SetDefault("DB_HOST", "localhost")
+	viper.SetDefault("DB_HOST", "postgres")
 	viper.SetDefault("DB_PORT", 5432)
 	viper.SetDefault("DB_USER", "chatgpt")
 	viper.SetDefault("DB_PASSWORD", "chatgpt_secret")

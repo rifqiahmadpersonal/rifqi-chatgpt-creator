@@ -3,6 +3,8 @@ package config
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -16,9 +18,18 @@ type Database struct {
 }
 
 func NewDatabase(cfg *DatabaseConfig, logger *logrus.Logger) (*Database, error) {
+	host := getEnvOrDefault("DB_HOST", "postgres")
+	port := getEnvOrDefaultInt("DB_PORT", 5432)
+	user := getEnvOrDefault("DB_USER", "chatgpt")
+	password := getEnvOrDefault("DB_PASSWORD", "chatgpt_secret_change_me")
+	dbname := getEnvOrDefault("DB_NAME", "chatgpt_creator")
+	sslmode := getEnvOrDefault("DB_SSL_MODE", "disable")
+
+	logger.Infof("Database config: host=%s port=%d", host, port)
+
 	dsn := fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.Name, cfg.SSLMode,
+		host, port, user, password, dbname, sslmode,
 	)
 
 	db, err := sqlx.Connect("postgres", dsn)
@@ -26,9 +37,18 @@ func NewDatabase(cfg *DatabaseConfig, logger *logrus.Logger) (*Database, error) 
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	db.SetMaxOpenConns(cfg.MaxOpenConns)
-	db.SetMaxIdleConns(cfg.MaxIdleConns)
-	db.SetConnMaxLifetime(cfg.ConnMaxLifetime)
+	maxOpenConns := getEnvOrDefaultInt("DB_MAX_OPEN_CONNS", 25)
+	maxIdleConns := getEnvOrDefaultInt("DB_MAX_IDLE_CONNS", 25)
+	connMaxLifetime := getEnvOrDefault("DB_CONN_MAX_LIFETIME", "5m")
+
+	db.SetMaxOpenConns(maxOpenConns)
+	db.SetMaxIdleConns(maxIdleConns)
+	
+	// Parse duration
+	duration, _ := time.ParseDuration(connMaxLifetime)
+	if duration > 0 {
+		db.SetConnMaxLifetime(duration)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -40,6 +60,22 @@ func NewDatabase(cfg *DatabaseConfig, logger *logrus.Logger) (*Database, error) 
 	logger.Info("Successfully connected to PostgreSQL database")
 
 	return &Database{DB: db, logger: logger}, nil
+}
+
+func getEnvOrDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+func getEnvOrDefaultInt(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if intVal, err := strconv.Atoi(value); err == nil {
+			return intVal
+		}
+	}
+	return defaultValue
 }
 
 func (db *Database) Close() error {
