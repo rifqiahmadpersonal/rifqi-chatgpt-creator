@@ -14,8 +14,6 @@ services:
       POSTGRES_DB: ${DB_NAME:-chatgpt_creator}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "${DB_EXTERNAL_PORT:-5432}:5432"
     networks:
       - chatgpt-network
     healthcheck:
@@ -35,8 +33,6 @@ services:
     command: redis-server --appendonly yes ${REDIS_PASSWORD:+--requirepass $REDIS_PASSWORD}
     volumes:
       - redis_data:/data
-    ports:
-      - "${REDIS_EXTERNAL_PORT:-6379}:6379"
     networks:
       - chatgpt-network
     healthcheck:
@@ -118,8 +114,6 @@ services:
       WS_PING_INTERVAL: ${WS_PING_INTERVAL:-30s}
       WS_PONG_WAIT: ${WS_PONG_WAIT:-60s}
       WS_MAX_MESSAGE_SIZE: ${WS_MAX_MESSAGE_SIZE:-4096}
-    ports:
-      - "${API_EXTERNAL_PORT:-8080}:8080"
     networks:
       - chatgpt-network
     depends_on:
@@ -146,8 +140,6 @@ services:
       NODE_ENV: production
       NEXT_TELEMETRY_DISABLED: 1
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
-    ports:
-      - "${FRONTEND_EXTERNAL_PORT:-3000}:3000"
     networks:
       - chatgpt-network
     depends_on:
