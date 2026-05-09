@@ -153,7 +153,7 @@ func setDefaults() {
 	viper.SetDefault("APP_ENV", "development")
 	viper.SetDefault("APP_NAME", "chatgpt-creator")
 	viper.SetDefault("APP_PORT", 8080)
-	viper.SetDefault("APP_MODE", "debug")
+	viper.SetDefault("APP_MODE", "release")
 
 	// Database defaults
 	viper.SetDefault("DB_HOST", "postgres")

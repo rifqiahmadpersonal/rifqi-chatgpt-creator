@@ -40,6 +40,9 @@ import (
 // @name Authorization
 
 func main() {
+	// Set Gin mode BEFORE any Gin operations
+	gin.SetMode(gin.ReleaseMode)
+
 	envCfg, err := config.LoadEnv()
 	if err != nil {
 		panic(fmt.Sprintf("Failed to load configuration: %v", err))
@@ -52,10 +55,6 @@ func main() {
 		logger.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer db.Close()
-
-	if envCfg.App.Mode == "release" {
-		gin.SetMode(gin.ReleaseMode)
-	}
 
 	router := gin.New()
 	router.Use(middleware.Logger(logger))
