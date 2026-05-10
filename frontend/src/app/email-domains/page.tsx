@@ -11,7 +11,7 @@ export default function EmailDomainsPage() {
   const [formData, setFormData] = useState({
     domain: '',
     priority: 50,
-    source: 'generator' as const,
+    source: 'generator' as 'generator' | 'custom',
   })
 
   useEffect(() => {

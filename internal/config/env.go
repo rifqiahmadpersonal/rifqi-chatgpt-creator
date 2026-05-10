@@ -6,6 +6,8 @@ import (
 	"github.com/spf13/viper"
 )
 
+var _ = viper.GetString
+
 // EnvConfig holds all application configuration loaded from environment
 type EnvConfig struct {
 	App           AppConfig
@@ -137,12 +139,71 @@ func LoadEnv() (*EnvConfig, error) {
 	viper.BindEnv("WS_PONG_WAIT")
 	viper.BindEnv("WS_MAX_MESSAGE_SIZE")
 
-	// Set defaults AFTER binding so env vars take precedence
+// Set defaults AFTER binding so env vars take precedence
 	setDefaults()
 
-	var cfg EnvConfig
-	if err := viper.Unmarshal(&cfg); err != nil {
-		return nil, err
+	// Manual override for critical values - viper string->int conversion is unreliable
+	cfg := EnvConfig{
+		App: AppConfig{
+			Env:  viper.GetString("APP_ENV"),
+			Name: viper.GetString("APP_NAME"),
+			Port: viper.GetInt("APP_PORT"),
+			Mode: viper.GetString("APP_MODE"),
+		},
+		DB: DatabaseConfig{
+			Host:            viper.GetString("DB_HOST"),
+			Port:            viper.GetInt("DB_PORT"),
+			User:            viper.GetString("DB_USER"),
+			Password:        viper.GetString("DB_PASSWORD"),
+			Name:            viper.GetString("DB_NAME"),
+			SSLMode:         viper.GetString("DB_SSL_MODE"),
+			MaxOpenConns:    viper.GetInt("DB_MAX_OPEN_CONNS"),
+			MaxIdleConns:    viper.GetInt("DB_MAX_IDLE_CONNS"),
+			ConnMaxLifetime: viper.GetDuration("DB_CONN_MAX_LIFETIME"),
+		},
+		Redis: RedisConfig{
+			Enabled:  viper.GetBool("REDIS_ENABLED"),
+			Host:     viper.GetString("REDIS_HOST"),
+			Port:     viper.GetInt("REDIS_PORT"),
+			Password: viper.GetString("REDIS_PASSWORD"),
+			DB:       viper.GetInt("REDIS_DB"),
+		},
+		Frontend: FrontendConfig{
+			URL:         viper.GetString("FRONTEND_URL"),
+			CORSOrigins: viper.GetString("CORS_ORIGINS"),
+		},
+		Registration: RegistrationConfig{
+			DefaultProxy:    viper.GetString("DEFAULT_PROXY"),
+			DefaultPassword: viper.GetString("DEFAULT_PASSWORD"),
+			DefaultDomain:   viper.GetString("DEFAULT_DOMAIN"),
+			WorkerPoolSize:  viper.GetInt("WORKER_POOL_SIZE"),
+			Timeout:         viper.GetDuration("REGISTRATION_TIMEOUT"),
+			MaxRetries:      viper.GetInt("MAX_RETRIES"),
+		},
+		EmailDomains: EmailDomainsConfig{
+			HealthCheckEnabled:  viper.GetBool("EMAIL_DOMAINS_HEALTH_CHECK_ENABLED"),
+			HealthCheckInterval: viper.GetDuration("EMAIL_DOMAINS_HEALTH_CHECK_INTERVAL"),
+			DefaultSource:       viper.GetString("EMAIL_DOMAINS_DEFAULT_SOURCE"),
+		},
+		Logging: LoggingConfig{
+			Level:  viper.GetString("LOG_LEVEL"),
+			Format: viper.GetString("LOG_FORMAT"),
+			Output: viper.GetString("LOG_OUTPUT"),
+		},
+		API: APIConfig{
+			RateLimitEnabled:  viper.GetBool("API_RATE_LIMIT_ENABLED"),
+			RateLimitRequests: viper.GetInt("API_RATE_LIMIT_REQUESTS"),
+			RateLimitDuration: viper.GetDuration("API_RATE_LIMIT_DURATION"),
+			ReadTimeout:       viper.GetDuration("API_READ_TIMEOUT"),
+			WriteTimeout:      viper.GetDuration("API_WRITE_TIMEOUT"),
+			ShutdownTimeout:   viper.GetDuration("API_SHUTDOWN_TIMEOUT"),
+		},
+		WebSocket: WebSocketConfig{
+			Enabled:        viper.GetBool("WS_ENABLED"),
+			PingInterval:   viper.GetDuration("WS_PING_INTERVAL"),
+			PongWait:       viper.GetDuration("WS_PONG_WAIT"),
+			MaxMessageSize: viper.GetInt64("WS_MAX_MESSAGE_SIZE"),
+		},
 	}
 
 	return &cfg, nil

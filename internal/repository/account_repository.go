@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/jmoiron/sqlx"
-	"rifqi-chatgpt-creator/internal/models"
+	"github.com/verssache/chatgpt-creator/internal/models"
 )
 
 type AccountRepository interface {

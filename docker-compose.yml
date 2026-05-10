@@ -111,11 +111,13 @@ services:
       WS_MAX_MESSAGE_SIZE: ${WS_MAX_MESSAGE_SIZE:-4096}
     networks:
       - chatgpt-network
+    ports:
+      - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -136,6 +138,8 @@ services:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
     networks:
       - chatgpt-network
+    ports:
+      - "3000:3000"
     depends_on:
       api:
         condition: service_healthy
