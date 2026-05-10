@@ -3,11 +3,12 @@ package register
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
-	"strings"
 
+	"github.com/sirupsen/logrus"
 	"github.com/verssache/chatgpt-creator/internal/email"
 	"github.com/verssache/chatgpt-creator/internal/util"
 )
@@ -62,7 +63,7 @@ func RunBatch(totalAccounts int, outputFile string, maxWorkers int, proxy, defau
 	var printMu sync.Mutex
 	var fileMu sync.Mutex
 
-	var remaining int64 = int64(totalAccounts)
+	remaining := int64(totalAccounts)
 	var successCount int64
 	var failureCount int64
 	var attemptNum int64
@@ -130,6 +131,96 @@ func RunBatch(totalAccounts int, outputFile string, maxWorkers int, proxy, defau
 	fmt.Printf("Failures:  %d\n", failureCount)
 	fmt.Printf("Elapsed:   %s\n", elapsedStr)
 	fmt.Printf("----------------------------------\n")
+}
+
+// AttemptCallback is called after each registration attempt with the result.
+type AttemptCallback func(email string, success bool, errMsg string)
+
+// RunBatchWithLogger runs concurrent registration with structured logging and a callback per attempt.
+func RunBatchWithLogger(totalAccounts, maxWorkers int, proxy, defaultPassword, defaultDomain string, logger *logrus.Logger, cb AttemptCallback) {
+	var printMu sync.Mutex
+	var fileMu sync.Mutex
+
+	remaining := int64(totalAccounts)
+	var successCount int64
+	var failureCount int64
+	var attemptNum int64
+
+	startTime := time.Now()
+
+	logger.WithFields(logrus.Fields{
+		"target":      totalAccounts,
+		"max_workers": maxWorkers,
+		"domain":      defaultDomain,
+	}).Info("[BATCH] Starting workers")
+
+	var wg sync.WaitGroup
+
+	for w := 1; w <= maxWorkers; w++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			for {
+				if atomic.AddInt64(&remaining, -1) < 0 {
+					atomic.AddInt64(&remaining, 1)
+					return
+				}
+
+				attempt := atomic.AddInt64(&attemptNum, 1)
+				tag := fmt.Sprintf("%d/%d", attempt, totalAccounts)
+
+				logger.WithFields(logrus.Fields{
+					"worker": workerID,
+					"attempt": tag,
+				}).Info("[BATCH] Starting registration attempt")
+
+				success, emailAddr, errStr := registerOne(workerID, tag, proxy, "batch_output.txt", defaultPassword, defaultDomain, &printMu, &fileMu)
+				if success {
+					atomic.AddInt64(&successCount, 1)
+					logger.WithFields(logrus.Fields{
+						"worker": workerID,
+						"email":  emailAddr,
+						"success_total": atomic.LoadInt64(&successCount),
+					}).Info("[BATCH] ✓ Registration SUCCESS")
+					if cb != nil {
+						cb(emailAddr, true, "")
+					}
+				} else {
+					atomic.AddInt64(&failureCount, 1)
+					atomic.AddInt64(&remaining, 1)
+
+					logger.WithFields(logrus.Fields{
+						"worker": workerID,
+						"email":  emailAddr,
+						"error":  errStr,
+					}).Warn("[BATCH] ✗ Registration FAILED (will retry)")
+
+					if strings.Contains(errStr, "unsupported_email") {
+						parts := strings.Split(emailAddr, "@")
+						if len(parts) == 2 {
+							email.AddBlacklistDomain(parts[1])
+							logger.WithField("domain", parts[1]).Warn("[BATCH] Domain blacklisted")
+						}
+					}
+
+					if cb != nil {
+						cb(emailAddr, false, errStr)
+					}
+				}
+			}
+		}(w)
+	}
+
+	wg.Wait()
+
+	elapsed := time.Since(startTime)
+	logger.WithFields(logrus.Fields{
+		"target":   totalAccounts,
+		"success":  successCount,
+		"failures": failureCount,
+		"attempts": attemptNum,
+		"elapsed":  formatDuration(elapsed),
+	}).Info("[BATCH] Batch completed")
 }
 
 func formatDuration(d time.Duration) string {

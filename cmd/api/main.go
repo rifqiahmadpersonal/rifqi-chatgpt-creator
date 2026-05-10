@@ -56,6 +56,10 @@ func main() {
 	}
 	defer db.Close()
 
+	if err := db.RunMigrations("migrations"); err != nil {
+		logger.Warnf("Migration warning: %v", err)
+	}
+
 	router := gin.New()
 	router.Use(middleware.Logger(logger))
 	router.Use(middleware.Recovery(logger))

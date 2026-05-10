@@ -76,7 +76,7 @@ services:
       
       # Frontend
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
       
       # Registration
       DEFAULT_PROXY: ${DEFAULT_PROXY:-}
@@ -135,7 +135,7 @@ services:
     environment:
       NODE_ENV: production
       NEXT_TELEMETRY_DISABLED: 1
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080/api}
     networks:
       - chatgpt-network
     ports:
@@ -149,8 +149,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
-    profiles:
-      - frontend
 
 # ===========================================
 # Networks

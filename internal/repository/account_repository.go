@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 
@@ -57,7 +56,7 @@ func (r *accountRepository) GetByID(ctx context.Context, id string) (*models.Acc
 	var account models.Account
 	err := r.db.GetContext(ctx, &account, query, id)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if isNoRowsError(err) {
 			return nil, ErrNotFound
 		}
 		return nil, err
@@ -70,7 +69,7 @@ func (r *accountRepository) GetByEmail(ctx context.Context, email string) (*mode
 	var account models.Account
 	err := r.db.GetContext(ctx, &account, query, email)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if isNoRowsError(err) {
 			return nil, ErrNotFound
 		}
 		return nil, err
@@ -99,6 +98,11 @@ func (r *accountRepository) List(ctx context.Context, filter *models.AccountFilt
 			args = append(args, "%"+filter.Email+"%")
 			argPos++
 		}
+	}
+
+	query += " ORDER BY created_at DESC"
+
+	if filter != nil {
 		if filter.Limit > 0 {
 			query += fmt.Sprintf(" LIMIT $%d", argPos)
 			args = append(args, filter.Limit)
@@ -107,11 +111,8 @@ func (r *accountRepository) List(ctx context.Context, filter *models.AccountFilt
 		if filter.Offset > 0 {
 			query += fmt.Sprintf(" OFFSET $%d", argPos)
 			args = append(args, filter.Offset)
-			argPos++
 		}
 	}
-
-	query += " ORDER BY created_at DESC"
 
 	var accounts []*models.Account
 	err := r.db.SelectContext(ctx, &accounts, query, args...)

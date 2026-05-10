@@ -1,9 +1,10 @@
 package email
 
 import (
+	crand "crypto/rand"
 	"encoding/json"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"net/http"
 	"os"
 	"regexp"
@@ -47,7 +48,7 @@ func saveBlacklist() {
 	defer blacklistMutex.Unlock()
 
 	var domains []string
-	blacklistedDomains.Range(func(key, value any) bool {
+	blacklistedDomains.Range(func(key, _ any) bool {
 		if domain, ok := key.(string); ok {
 			domains = append(domains, domain)
 		}
@@ -59,7 +60,7 @@ func saveBlacklist() {
 		return
 	}
 
-	_ = os.WriteFile("blacklist.json", data, 0644)
+	_ = os.WriteFile("blacklist.json", data, 0600)
 }
 
 // AddBlacklistDomain adds a domain to the global blacklist.
@@ -67,6 +68,7 @@ func AddBlacklistDomain(domain string) {
 	blacklistedDomains.Store(domain, true)
 	saveBlacklist()
 }
+
 // CreateTempEmail fetches a new temp email using a random profile and gofakeit names.
 func CreateTempEmail(defaultDomain string) (string, error) {
 	// If defaultDomain is set, skip fetching from generator.email
@@ -107,7 +109,7 @@ func CreateTempEmail(defaultDomain string) (string, error) {
 	}
 
 	domains := []string{"smartmail.de", "enayu.com", "crazymailing.com"}
-	doc.Find(".e7m.tt-suggestions div > p").Each(func(i int, s *goquery.Selection) {
+	doc.Find(".e7m.tt-suggestions div > p").Each(func(_ int, s *goquery.Selection) {
 		domain := strings.TrimSpace(s.Text())
 		if domain != "" {
 			if _, blacklisted := blacklistedDomains.Load(domain); !blacklisted {
@@ -120,8 +122,13 @@ func CreateTempEmail(defaultDomain string) (string, error) {
 		return "", fmt.Errorf("all available domains are blacklisted")
 	}
 
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	randomDomain := domains[r.Intn(len(domains))]
+	randomDomain := domains[0]
+	if len(domains) > 1 {
+		idx, err := crand.Int(crand.Reader, big.NewInt(int64(len(domains))))
+		if err == nil {
+			randomDomain = domains[idx.Int64()]
+		}
+	}
 
 	firstName := gofakeit.FirstName()
 	lastName := gofakeit.LastName()
@@ -141,7 +148,7 @@ func GetVerificationCode(email string, maxRetries int, delay time.Duration) (str
 
 	otpRegex := regexp.MustCompile(`\d{6}`)
 
-	for i := 0; i < maxRetries; i++ {
+	for range maxRetries {
 		options := []tls_client.HttpClientOption{
 			tls_client.WithClientProfile(profiles.Chrome_131),
 		}
@@ -180,19 +187,17 @@ func GetVerificationCode(email string, maxRetries int, delay time.Duration) (str
 			continue
 		}
 
-		// Find OTP in #email-table > div.e7m.list-group-item.list-group-item-info > div.e7m.subj_div_45g45gg
+		// Find OTP in the email body content - search all text in #email-table
 		otp := ""
-		doc.Find("#email-table > div.e7m.list-group-item.list-group-item-info > div.e7m.subj_div_45g45gg").EachWithBreak(func(i int, s *goquery.Selection) bool {
+		doc.Find("#email-table").EachWithBreak(func(_ int, s *goquery.Selection) bool {
 			text := s.Text()
-			matches := otpRegex.FindStringSubmatch(text)
-			if len(matches) > 0 {
-				code := matches[0]
-				// Skip code "177010" explicitly
+			matches := otpRegex.FindAllString(text, -1)
+			for _, code := range matches {
 				if code == "177010" {
-					return true // continue to next if any, but we only expect one
+					continue
 				}
 				otp = code
-				return false // break
+				return false
 			}
 			return true
 		})

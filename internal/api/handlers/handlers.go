@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -11,22 +12,23 @@ import (
 
 	"github.com/verssache/chatgpt-creator/internal/config"
 	"github.com/verssache/chatgpt-creator/internal/models"
+	"github.com/verssache/chatgpt-creator/internal/register"
 	"github.com/verssache/chatgpt-creator/internal/repository"
 )
 
 type Handlers struct {
-	db       *sqlx.DB
-	logger   *logrus.Logger
-	cfg      *config.EnvConfig
-	repos    *Repositories
+	db     *sqlx.DB
+	logger *logrus.Logger
+	cfg    *config.EnvConfig
+	repos  *Repositories
 }
 
 type Repositories struct {
-	accounts            repository.AccountRepository
-	emailDomains        repository.EmailDomainRepository
-	batchJobs           repository.BatchJobRepository
-	configurations      repository.ConfigurationRepository
-	blacklistedDomains  repository.BlacklistedDomainRepository
+	accounts             repository.AccountRepository
+	emailDomains         repository.EmailDomainRepository
+	batchJobs            repository.BatchJobRepository
+	configurations       repository.ConfigurationRepository
+	blacklistedDomains   repository.BlacklistedDomainRepository
 	registrationAttempts repository.RegistrationAttemptRepository
 }
 
@@ -36,11 +38,11 @@ func NewHandlers(db *sqlx.DB, logger *logrus.Logger, cfg *config.EnvConfig) *Han
 		logger: logger,
 		cfg:    cfg,
 		repos: &Repositories{
-			accounts:            repository.NewAccountRepository(db),
-			emailDomains:        repository.NewEmailDomainRepository(db),
-			batchJobs:           repository.NewBatchJobRepository(db),
-			configurations:      repository.NewConfigurationRepository(db),
-			blacklistedDomains:  repository.NewBlacklistedDomainRepository(db),
+			accounts:             repository.NewAccountRepository(db),
+			emailDomains:         repository.NewEmailDomainRepository(db),
+			batchJobs:            repository.NewBatchJobRepository(db),
+			configurations:       repository.NewConfigurationRepository(db),
+			blacklistedDomains:   repository.NewBlacklistedDomainRepository(db),
 			registrationAttempts: repository.NewRegistrationAttemptRepository(db),
 		},
 	}
@@ -51,11 +53,14 @@ func Init() {}
 // ==================== ACCOUNTS ====================
 
 func (h *Handlers) ListAccounts(c *gin.Context) {
-	accounts, err := h.repos.accounts.List(c.Request.Context(), false)
+	accounts, err := h.repos.accounts.List(c.Request.Context(), nil)
 	if err != nil {
 		h.logger.WithError(err).Error("Failed to list accounts")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list accounts"})
 		return
+	}
+	if accounts == nil {
+		accounts = []*models.Account{}
 	}
 	c.JSON(http.StatusOK, gin.H{"accounts": accounts})
 }
@@ -89,7 +94,7 @@ func (h *Handlers) CreateAccount(c *gin.Context) {
 		ID:        uuid.New().String(),
 		Email:     req.Email,
 		Password:  req.Password,
-		IsActive:  true,
+		Status:    models.AccountStatusActive,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
@@ -118,7 +123,7 @@ func (h *Handlers) DeleteAccount(c *gin.Context) {
 }
 
 func (h *Handlers) ExportAccounts(c *gin.Context) {
-	accounts, err := h.repos.accounts.List(c.Request.Context(), false)
+	accounts, err := h.repos.accounts.List(c.Request.Context(), nil)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to export accounts"})
 		return
@@ -134,6 +139,9 @@ func (h *Handlers) ListEmailDomains(c *gin.Context) {
 		h.logger.WithError(err).Error("Failed to list email domains")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list email domains"})
 		return
+	}
+	if domains == nil {
+		domains = []*models.EmailDomain{}
 	}
 	c.JSON(http.StatusOK, gin.H{"domains": domains})
 }
@@ -280,10 +288,13 @@ func (h *Handlers) CheckEmailDomainHealth(c *gin.Context) {
 // ==================== BATCH JOBS ====================
 
 func (h *Handlers) ListBatchJobs(c *gin.Context) {
-	jobs, err := h.repos.batchJobs.List(c.Request.Context())
+	jobs, err := h.repos.batchJobs.List(c.Request.Context(), "")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list batch jobs"})
 		return
+	}
+	if jobs == nil {
+		jobs = []*models.BatchJob{}
 	}
 	c.JSON(http.StatusOK, gin.H{"jobs": jobs})
 }
@@ -305,19 +316,28 @@ func (h *Handlers) GetBatchJob(c *gin.Context) {
 
 func (h *Handlers) CreateBatchJob(c *gin.Context) {
 	var req struct {
-		TargetCount int `json:"target_count" binding:"required,min=1"`
+		TargetCount     int    `json:"target_count" binding:"required,min=1"`
+		MaxWorkers      int    `json:"max_workers"`
+		DefaultPassword string `json:"default_password"`
+		Proxy           string `json:"proxy"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
+	if req.MaxWorkers < 1 {
+		req.MaxWorkers = 3
+	}
+
 	job := &models.BatchJob{
-		ID:          uuid.New().String(),
-		TargetCount: req.TargetCount,
-		Status:      models.BatchJobStatusPending,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		ID:              uuid.New().String(),
+		TargetCount:     req.TargetCount,
+		MaxWorkers:      req.MaxWorkers,
+		DefaultPassword: req.DefaultPassword,
+		Proxy:           req.Proxy,
+		Status:          models.BatchJobStatusPending,
+		CreatedAt:       time.Now(),
 	}
 
 	if err := h.repos.batchJobs.Create(c.Request.Context(), job); err != nil {
@@ -341,15 +361,105 @@ func (h *Handlers) StartBatchJob(c *gin.Context) {
 		return
 	}
 
-	job.Status = models.BatchJobStatusRunning
-	job.UpdatedAt = time.Now()
+	if job.Status == models.BatchJobStatusRunning {
+		c.JSON(http.StatusConflict, gin.H{"error": "job is already running"})
+		return
+	}
 
+	job.Status = models.BatchJobStatusRunning
 	if err := h.repos.batchJobs.Update(c.Request.Context(), job); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start job"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "running"})
+	// Resolve default domain from config
+	cfgDomain, _ := h.repos.configurations.GetByKey(c.Request.Context(), "default_domain")
+	defaultDomain := ""
+	if cfgDomain != nil {
+		defaultDomain = cfgDomain.Value
+	}
+	if defaultDomain == "" {
+		defaultDomain = h.cfg.Registration.DefaultDomain
+	}
+
+	// Resolve proxy
+	proxy := job.Proxy
+	if proxy == "" {
+		proxy = h.cfg.Registration.DefaultProxy
+	}
+
+	// Resolve password
+	password := job.DefaultPassword
+	if password == "" {
+		cfgPwd, _ := h.repos.configurations.GetByKey(c.Request.Context(), "default_password")
+		if cfgPwd != nil {
+			password = cfgPwd.Value
+		}
+	}
+
+	h.logger.WithFields(logrus.Fields{
+		"job_id":       job.ID,
+		"target_count": job.TargetCount,
+		"max_workers":  job.MaxWorkers,
+		"domain":       defaultDomain,
+		"proxy":        proxy,
+	}).Info("[BATCH] Starting batch job")
+
+	// Launch batch in background goroutine
+	go h.runBatchJob(job, proxy, password, defaultDomain)
+
+	c.JSON(http.StatusOK, gin.H{"status": "running", "domain": defaultDomain})
+}
+
+func (h *Handlers) runBatchJob(job *models.BatchJob, proxy, password, domain string) {
+	ctx := context.Background()
+	startTime := time.Now()
+
+	h.logger.WithFields(logrus.Fields{
+		"job_id": job.ID,
+	}).Info("[BATCH] Worker goroutine started")
+
+	register.RunBatchWithLogger(
+		job.TargetCount,
+		job.MaxWorkers,
+		proxy,
+		password,
+		domain,
+		h.logger,
+		func(email string, success bool, errMsg string) {
+			// Update DB counters on each attempt
+			if success {
+				_ = h.repos.batchJobs.IncrementSuccess(ctx, job.ID)
+				// Save account to DB
+				acct := &models.Account{
+					ID:         uuid.New().String(),
+					Email:      email,
+					Password:   password,
+					Status:     models.AccountStatusActive,
+					BatchJobID: &job.ID,
+					CreatedAt:  time.Now(),
+					UpdatedAt:  time.Now(),
+				}
+				if err := h.repos.accounts.Create(ctx, acct); err != nil {
+					h.logger.WithError(err).Warn("[BATCH] Failed to save account to DB")
+				}
+			} else {
+				_ = h.repos.batchJobs.IncrementFailure(ctx, job.ID)
+			}
+		},
+	)
+
+	// Mark job completed
+	elapsed := time.Since(startTime)
+	now := time.Now()
+	job.Status = models.BatchJobStatusCompleted
+	job.CompletedAt = &now
+	_ = h.repos.batchJobs.Update(ctx, job)
+
+	h.logger.WithFields(logrus.Fields{
+		"job_id":  job.ID,
+		"elapsed": elapsed.String(),
+	}).Info("[BATCH] Job completed")
 }
 
 func (h *Handlers) StopBatchJob(c *gin.Context) {
@@ -365,8 +475,7 @@ func (h *Handlers) StopBatchJob(c *gin.Context) {
 		return
 	}
 
-	job.Status = models.BatchJobStatusStopped
-	job.UpdatedAt = time.Now()
+	job.Status = models.BatchJobStatusCancelled
 
 	if err := h.repos.batchJobs.Update(c.Request.Context(), job); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to stop job"})
@@ -388,7 +497,9 @@ func (h *Handlers) GetBatchJobAttempts(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get attempts"})
 		return
 	}
-
+	if attempts == nil {
+		attempts = []*models.RegistrationAttempt{}
+	}
 	c.JSON(http.StatusOK, gin.H{"attempts": attempts})
 }
 
@@ -399,6 +510,9 @@ func (h *Handlers) ListConfigurations(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list configurations"})
 		return
+	}
+	if configs == nil {
+		configs = []*models.Configuration{}
 	}
 	c.JSON(http.StatusOK, gin.H{"configurations": configs})
 }
@@ -426,13 +540,16 @@ func (h *Handlers) UpdateConfiguration(c *gin.Context) {
 		return
 	}
 
-	config := &models.Configuration{
+	now := time.Now()
+	cfg := &models.Configuration{
+		ID:        uuid.New().String(),
 		Key:       key,
 		Value:     req.Value,
-		UpdatedAt: time.Now(),
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 
-	if err := h.repos.configurations.Upsert(c.Request.Context(), config); err != nil {
+	if err := h.repos.configurations.Upsert(c.Request.Context(), cfg); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update configuration"})
 		return
 	}
@@ -447,6 +564,9 @@ func (h *Handlers) ListBlacklistedDomains(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list blacklisted domains"})
 		return
+	}
+	if domains == nil {
+		domains = []*models.BlacklistedDomain{}
 	}
 	c.JSON(http.StatusOK, gin.H{"domains": domains})
 }
@@ -495,10 +615,10 @@ func (h *Handlers) DeleteBlacklistedDomain(c *gin.Context) {
 func (h *Handlers) GetDashboardStats(c *gin.Context) {
 	ctx := c.Request.Context()
 
-	accounts, _ := h.repos.accounts.List(ctx, false)
+	accounts, _ := h.repos.accounts.List(ctx, nil)
 	activeAccounts := 0
 	for _, a := range accounts {
-		if a.IsActive {
+		if a.Status == models.AccountStatusActive {
 			activeAccounts++
 		}
 	}
@@ -506,7 +626,7 @@ func (h *Handlers) GetDashboardStats(c *gin.Context) {
 	domains, _ := h.repos.emailDomains.List(ctx, true)
 	activeDomains := len(domains)
 
-	jobs, _ := h.repos.batchJobs.List(ctx)
+	jobs, _ := h.repos.batchJobs.List(ctx, "")
 	runningJobs := 0
 	for _, j := range jobs {
 		if j.Status == models.BatchJobStatusRunning {

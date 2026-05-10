@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strconv"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	// Register the PostgreSQL driver.
 	_ "github.com/lib/pq"
 	"github.com/sirupsen/logrus"
 )
@@ -18,12 +20,31 @@ type Database struct {
 }
 
 func NewDatabase(cfg *DatabaseConfig, logger *logrus.Logger) (*Database, error) {
-	host := getEnvOrDefault("DB_HOST", "postgres")
-	port := getEnvOrDefaultInt("DB_PORT", 5432)
-	user := getEnvOrDefault("DB_USER", "chatgpt")
-	password := getEnvOrDefault("DB_PASSWORD", "chatgpt_secret_change_me")
-	dbname := getEnvOrDefault("DB_NAME", "chatgpt_creator")
-	sslmode := getEnvOrDefault("DB_SSL_MODE", "disable")
+	if cfg == nil {
+		cfg = &DatabaseConfig{}
+	}
+
+	host := cfg.Host
+	if host == "" {
+		host = "postgres"
+	}
+	port := cfg.Port
+	if port == 0 {
+		port = 5432
+	}
+	user := cfg.User
+	if user == "" {
+		user = "chatgpt"
+	}
+	password := cfg.Password
+	dbname := cfg.Name
+	if dbname == "" {
+		dbname = "chatgpt_creator"
+	}
+	sslmode := cfg.SSLMode
+	if sslmode == "" {
+		sslmode = "disable"
+	}
 
 	logger.Infof("Database config: host=%s port=%d", host, port)
 
@@ -37,18 +58,22 @@ func NewDatabase(cfg *DatabaseConfig, logger *logrus.Logger) (*Database, error) 
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	maxOpenConns := getEnvOrDefaultInt("DB_MAX_OPEN_CONNS", 25)
-	maxIdleConns := getEnvOrDefaultInt("DB_MAX_IDLE_CONNS", 25)
-	connMaxLifetime := getEnvOrDefault("DB_CONN_MAX_LIFETIME", "5m")
+	maxOpenConns := cfg.MaxOpenConns
+	if maxOpenConns == 0 {
+		maxOpenConns = 25
+	}
+	maxIdleConns := cfg.MaxIdleConns
+	if maxIdleConns == 0 {
+		maxIdleConns = 25
+	}
+	connMaxLifetime := cfg.ConnMaxLifetime
+	if connMaxLifetime == 0 {
+		connMaxLifetime = 5 * time.Minute
+	}
 
 	db.SetMaxOpenConns(maxOpenConns)
 	db.SetMaxIdleConns(maxIdleConns)
-	
-	// Parse duration
-	duration, _ := time.ParseDuration(connMaxLifetime)
-	if duration > 0 {
-		db.SetConnMaxLifetime(duration)
-	}
+	db.SetConnMaxLifetime(connMaxLifetime)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -62,22 +87,6 @@ func NewDatabase(cfg *DatabaseConfig, logger *logrus.Logger) (*Database, error) 
 	return &Database{DB: db, logger: logger}, nil
 }
 
-func getEnvOrDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-func getEnvOrDefaultInt(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
-		if intVal, err := strconv.Atoi(value); err == nil {
-			return intVal
-		}
-	}
-	return defaultValue
-}
-
 func (db *Database) Close() error {
 	db.logger.Info("Closing database connection")
 	return db.DB.Close()
@@ -85,4 +94,33 @@ func (db *Database) Close() error {
 
 func (db *Database) Ping() error {
 	return db.DB.Ping()
+}
+
+// RunMigrations executes SQL migration files from the given directory.
+func (db *Database) RunMigrations(migrationsDir string) error {
+	entries, err := os.ReadDir(migrationsDir)
+	if err != nil {
+		return fmt.Errorf("failed to read migrations directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".up.sql") {
+			continue
+		}
+		path := filepath.Join(migrationsDir, entry.Name())
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("failed to read migration %s: %w", entry.Name(), err)
+		}
+		if _, err := db.DB.Exec(string(content)); err != nil {
+			// Ignore "already exists" errors for idempotency
+			if strings.Contains(err.Error(), "already exists") {
+				db.logger.Debugf("Migration %s: objects already exist, skipping", entry.Name())
+				continue
+			}
+			return fmt.Errorf("failed to execute migration %s: %w", entry.Name(), err)
+		}
+		db.logger.Infof("Applied migration: %s", entry.Name())
+	}
+	return nil
 }
