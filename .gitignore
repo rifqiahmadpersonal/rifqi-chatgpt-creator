@@ -60,3 +60,5 @@ temp/
 
 # Docker
 .docker/
+
+opencode.json
